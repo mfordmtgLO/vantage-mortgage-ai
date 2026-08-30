@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.52",
+    "ai": "^7.0.85",
+    "react-markdown": "^10.1.0"
+  }
+}

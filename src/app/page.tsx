@@ -1,10 +1,8 @@
 'use client';
 import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
-
-// FIX: Dynamically match the worker version to the installed API version exactly
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+// @ts-ignore
+import PDFParser from "pdf2json";
 
 export default function Home() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -17,19 +15,40 @@ export default function Home() {
     if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
   };
 
-  // Client-side PDF text extractor
+  // PURE JS Client-side PDF text extractor (NO WORKER NEEDED)
   const extractTextFromPDF = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-    const pdf = await loadingTask.promise;
-    let fullText = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ');
-      fullText += pageText + '\n';
-    }
-    return fullText;
+    return new Promise((resolve, reject) => {
+      // @ts-ignore
+      const pdfParser = new PDFParser(null, 1);
+      
+      pdfParser.on("pdfParser_dataError", (errData: any) => {
+        reject(new Error(errData.parserError || "Failed to parse PDF"));
+      });
+      
+      pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
+        let fullText = "";
+        if (pdfData.Pages) {
+          pdfData.Pages.forEach((page: any) => {
+            if (page.Texts) {
+              page.Texts.forEach((textItem: any) => {
+                fullText += decodeURIComponent(textItem.R.map((r: any) => r.T).join(" ")) + " ";
+              });
+            }
+            fullText += "\n";
+          });
+        }
+        resolve(fullText.trim());
+      });
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result) {
+          pdfParser.parseBuffer(reader.result as ArrayBuffer);
+        }
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsArrayBuffer(file);
+    });
   };
 
   const sendMessage = async (userMessage: any) => {

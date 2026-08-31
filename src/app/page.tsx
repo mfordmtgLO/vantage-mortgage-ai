@@ -4,7 +4,11 @@ import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
 
 export default function Home() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, append } = useChat();
+  const { messages, input, handleInputChange, handleSubmit, isLoading, append, error } = useChat({
+    onError: (error) => {
+      console.error('[v0] Chat request failed:', error);
+    },
+  });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -80,6 +84,12 @@ export default function Home() {
             </div>
           ))}
           
+          {error && (
+            <div role="alert" className="rounded-lg border border-red-900 bg-red-950/50 p-3 text-sm text-red-200">
+              {error.message || 'The chat request failed. Check the server configuration and try again.'}
+            </div>
+          )}
+
           {isLoading && (
              <div className="flex justify-start">
                 <div className="bg-gray-800 text-gray-400 p-3 rounded-2xl rounded-bl-none border border-gray-700 text-sm">

@@ -2,6 +2,7 @@
 import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { jsPDF } from "jspdf";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -35,23 +36,25 @@ export default function Home() {
   };
 
   const sendMessage = async (cleanUiMessage: any, documentContext?: string) => {
-    setMessages(prev => [...prev, cleanUiMessage]);
+    const newAssistantId = `assistant-${Date.now()}`;
+    const updatedMessages = [
+      ...messages, 
+      cleanUiMessage, 
+      { role: 'assistant', content: '', id: newAssistantId }
+    ];
+    
+    setMessages(updatedMessages);
     setIsLoading(true);
     setInput('');
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
-    setMessages(prev => [...prev, { role: 'assistant', content: '', id: `assistant-${Date.now()}` }]);
-
     try {
-      // We pass the current messages state to the API so the AI remembers the conversation
-      const currentMessages = [...messages, cleanUiMessage];
-      
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          messages: currentMessages,
+          messages: [...messages, cleanUiMessage],
           documentContext: documentContext 
         })
       });
@@ -83,7 +86,10 @@ export default function Home() {
               assistantContent += text;
               setMessages(prev => {
                 const newMessages = [...prev];
-                newMessages[newMessages.length - 1].content = assistantContent;
+                const lastIndex = newMessages.length - 1;
+                if (newMessages[lastIndex].id === newAssistantId) {
+                  newMessages[lastIndex].content = assistantContent;
+                }
                 return newMessages;
               });
             }
@@ -99,6 +105,14 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const downloadResponseAsPDF = (content: string) => {
+    const doc = new jsPDF();
+    const splitText = doc.splitTextToSize(content, 170); 
+    doc.setFontSize(12);
+    doc.text(splitText, 10, 10);
+    doc.save(`Vantage-Speech-Script-${Date.now()}.pdf`);
   };
 
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -117,8 +131,6 @@ export default function Home() {
       
       try {
         const rawText = await extractTextFromPDF(selectedFile);
-        
-        // FIX: The exclamation mark (!) keeps the real messages and removes the temp one
         setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')));
         
         const sanitizedText = redactPII(rawText);
@@ -156,10 +168,26 @@ export default function Home() {
           
           {messages.map((m) => (
             <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[90%] p-3 rounded-2xl text-sm ${
+              <div className={`max-w-[90%] p-4 rounded-2xl text-sm ${
                 m.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700 prose prose-invert prose-sm max-w-none'
               }`}>
-                {m.role === 'user' ? m.content : <ReactMarkdown>{m.content}</ReactMarkdown>}
+                {m.role === 'user' ? (
+                  m.content
+                ) : (
+                  <>
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                    
+                    {/* MASSIVE OBVIOUS DOWNLOAD BUTTON */}
+                    {m.content && m.content.length > 10 && (
+                      <button 
+                        onClick={() => downloadResponseAsPDF(m.content)}
+                        className="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg border border-blue-400"
+                      >
+                        <span>⬇️</span> Download Speech-Ready PDF
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ))}

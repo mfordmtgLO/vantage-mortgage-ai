@@ -1,12 +1,12 @@
 'use client';
-import { useChat } from 'ai/react';
 import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
 
 export default function Home() {
-  const { messages, input, handleInputChange, setMessages } = useChat();
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -14,11 +14,14 @@ export default function Home() {
   };
 
   const sendMessage = async (userMessage: any) => {
-    setMessages([...messages, userMessage]);
-    setIsStreaming(true);
-    handleInputChange({ target: { value: '' } } as any);
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+    setInput('');
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // Add a placeholder for the assistant's response
+    setMessages(prev => [...prev, { role: 'assistant', content: '', id: `assistant-${Date.now()}` }]);
 
     try {
       const response = await fetch('/api/chat', {
@@ -27,10 +30,7 @@ export default function Home() {
         body: JSON.stringify({ messages: [...messages, userMessage] })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.details || 'Server error');
-      }
+      if (!response.ok) throw new Error('Server error');
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -44,27 +44,32 @@ export default function Home() {
           const lines = chunk.split('\n');
           
           for (const line of lines) {
-            // The Vercel AI SDK streams text with a '0:' prefix
             if (line.startsWith('0:')) {
-              const text = JSON.parse(line.slice(2));
+              let text = line.slice(2);
+              try {
+                const parsed = JSON.parse(text);
+                text = typeof parsed === 'string' ? parsed : parsed.text || '';
+              } catch (e) {}
+              
               assistantContent += text;
-              setMessages([...messages, userMessage, { 
-                role: 'assistant', 
-                content: assistantContent, 
-                id: `assistant-${Date.now()}` 
-              }]);
+              // Update the last message with the new text
+              setMessages(prev => {
+                const newMessages = [...prev];
+                newMessages[newMessages.length - 1].content = assistantContent;
+                return newMessages;
+              });
             }
           }
         }
       }
     } catch (error: any) {
-      setMessages([...messages, userMessage, { 
-        role: 'assistant', 
-        content: `Error: ${error.message}`, 
-        id: `error-${Date.now()}` 
-      }]);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1].content = `Error: ${error.message}`;
+        return newMessages;
+      });
     } finally {
-      setIsStreaming(false);
+      setIsLoading(false);
     }
   };
 
@@ -126,7 +131,7 @@ export default function Home() {
             </div>
           ))}
           
-          {isStreaming && (
+          {isLoading && messages[messages.length - 1]?.content === '' && (
              <div className="flex justify-start">
                 <div className="bg-gray-800 text-gray-400 p-3 rounded-2xl rounded-bl-none border border-gray-700 text-sm">
                   <span className="animate-pulse">Crunching the numbers...</span>
@@ -138,15 +143,15 @@ export default function Home() {
         <form onSubmit={onSubmit} className="p-4 border-t border-gray-800 fixed bottom-0 w-full max-w-md bg-gray-900">
           {selectedFile && (
             <div className="mb-2 text-xs bg-gray-800 p-2 rounded flex justify-between items-center">
-              <span className="truncate max-w-[200px]"> {selectedFile.name}</span>
-              <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2">✕</button>
+              <span className="truncate max-w-[200px]">📎 {selectedFile.name}</span>
+              <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2"></button>
             </div>
           )}
           <div className="flex gap-2 items-center">
             <input type="file" accept=".pdf,.txt,.csv" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
             <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-gray-700 hover:bg-gray-600 text-white p-3 rounded-full transition shrink-0">📎</button>
-            <input value={input} onChange={handleInputChange} placeholder="Ask a question or attach a Schedule C..." className="flex-1 bg-gray-800 text-white p-3 rounded-full border border-gray-700 focus:outline-none focus:border-blue-500 text-sm min-w-0" disabled={isStreaming} />
-            <button type="submit" disabled={isStreaming || (!input.trim() && !selectedFile)} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white px-4 py-2 rounded-full font-semibold transition text-sm shrink-0">Send</button>
+            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask a question or attach a Schedule C..." className="flex-1 bg-gray-800 text-white p-3 rounded-full border border-gray-700 focus:outline-none focus:border-blue-500 text-sm min-w-0" disabled={isLoading} />
+            <button type="submit" disabled={isLoading || (!input.trim() && !selectedFile)} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white px-4 py-2 rounded-full font-semibold transition text-sm shrink-0">Send</button>
           </div>
         </form>
       </div>

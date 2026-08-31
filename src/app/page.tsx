@@ -5,14 +5,8 @@ import * as pdfjsLib from 'pdfjs-dist';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-// COMPLIANCE: PII Redaction Function
 const redactPII = (text: string): string => {
-  return text
-    // Redact SSNs (e.g., 123-45-6789, 123 45 6789, 123456789)
-    .replace(/\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b/g, '***-**-****')
-    // Redact standard 9-digit account numbers (optional, adjust if needed)
-    // .replace(/\b\d{9}\b/g, '*********') 
-    ;
+  return text.replace(/\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b/g, '***-**-****');
 };
 
 export default function Home() {
@@ -41,7 +35,6 @@ export default function Home() {
   };
 
   const sendMessage = async (cleanUiMessage: any, documentContext?: string) => {
-    // 1. Add ONLY the clean message to the UI state
     setMessages(prev => [...prev, cleanUiMessage]);
     setIsLoading(true);
     setInput('');
@@ -51,13 +44,15 @@ export default function Home() {
     setMessages(prev => [...prev, { role: 'assistant', content: '', id: `assistant-${Date.now()}` }]);
 
     try {
-      // 2. Send the documentContext separately. It NEVER touches the UI state.
+      // We pass the current messages state to the API so the AI remembers the conversation
+      const currentMessages = [...messages, cleanUiMessage];
+      
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          messages: [...messages, cleanUiMessage],
-          documentContext: documentContext // Ephemeral payload
+          messages: currentMessages,
+          documentContext: documentContext 
         })
       });
 
@@ -122,19 +117,19 @@ export default function Home() {
       
       try {
         const rawText = await extractTextFromPDF(selectedFile);
-        setMessages(prev => prev.filter(m => m.id.startsWith('temp-')));
         
-        // COMPLIANCE: Redact PII before it ever leaves the browser
+        // FIX: The exclamation mark (!) keeps the real messages and removes the temp one
+        setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')));
+        
         const sanitizedText = redactPII(rawText);
-        
-        // Send clean UI message + ephemeral sanitized context
         await sendMessage(cleanUiMessage, sanitizedText);
       } catch (err: any) {
-        setMessages(prev => {
-          const newMessages = [...prev];
-          newMessages[newMessages.length - 1].content = `Error reading PDF: ${err.message}`;
-          return newMessages;
-        });
+        setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')));
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: `Error reading PDF: ${err.message}`, 
+          id: `error-${Date.now()}` 
+        }]);
         setIsLoading(false);
         return;
       }

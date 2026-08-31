@@ -20,7 +20,6 @@ export default function Home() {
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
-    // Add a placeholder for the assistant's response
     setMessages(prev => [...prev, { role: 'assistant', content: '', id: `assistant-${Date.now()}` }]);
 
     try {
@@ -30,7 +29,11 @@ export default function Home() {
         body: JSON.stringify({ messages: [...messages, userMessage] })
       });
 
-      if (!response.ok) throw new Error('Server error');
+      // UNMASK THE ERROR: Read the exact error details from the backend
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.details || `Server error: ${response.status}`);
+      }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -52,7 +55,6 @@ export default function Home() {
               } catch (e) {}
               
               assistantContent += text;
-              // Update the last message with the new text
               setMessages(prev => {
                 const newMessages = [...prev];
                 newMessages[newMessages.length - 1].content = assistantContent;

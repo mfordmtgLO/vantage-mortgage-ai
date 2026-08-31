@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   const { messages } = await req.json();
 
   const result = await streamText({
-    // 'as any' completely bypasses the Vercel AI SDK's strict tool type mismatch error
+    // 'as any' bypasses the SDK's strict tool type mismatch error
     model: openai('gpt-4o-mini') as any,
     system: `You are VANTAGE, the ultimate 24/7 mortgage and real estate financing assistant for Loan Officers. You live on their mobile device and are their most trusted, reliable, and proactive partner. 
 
@@ -35,5 +35,6 @@ RULES OF ENGAGEMENT:
     messages,
   });
 
-  return result.toDataStreamResponse();
+  // Cast to any to bypass the SDK's broken type inference caused by the model cast
+  return (result as any).toDataStreamResponse();
 }

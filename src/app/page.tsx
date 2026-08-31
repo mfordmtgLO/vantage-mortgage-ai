@@ -14,7 +14,8 @@ export default function Home() {
     }
   };
 
-  const onSubmit = (e: React.FormEvent) => {
+  // Explicitly typing the event as HTMLFormElement satisfies TypeScript
+  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim() && !selectedFile) return;
 
@@ -30,7 +31,7 @@ export default function Home() {
             contentType: selectedFile.type,
             url: reader.result as string
           }]
-        } as any); // <-- Cast to any bypasses the strict TS check
+        } as any); 
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
         handleInputChange({ target: { value: '' } } as any);
@@ -91,7 +92,7 @@ export default function Home() {
         <form onSubmit={onSubmit} className="p-4 border-t border-gray-800 fixed bottom-0 w-full max-w-md bg-gray-900">
           {selectedFile && (
             <div className="mb-2 text-xs bg-gray-800 p-2 rounded flex justify-between items-center">
-              <span className="truncate max-w-[200px]">📎 {selectedFile.name}</span>
+              <span className="truncate max-w-[200px]"> {selectedFile.name}</span>
               <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2">✕</button>
             </div>
           )}

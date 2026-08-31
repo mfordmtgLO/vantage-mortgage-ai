@@ -14,25 +14,36 @@ export default function Home() {
     }
   };
 
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim() && !selectedFile) return;
 
     if (selectedFile) {
       const reader = new FileReader();
       reader.readAsDataURL(selectedFile);
-      reader.onload = () => {
-        append({
+      reader.onload = async () => {
+        const base64Url = reader.result as string;
+        
+        // BROWSER CONSOLE LOG: This will show up in your F12 Dev Tools
+        console.log('📱 FRONTEND: Packaging attachment:', {
+          name: selectedFile.name,
+          contentType: selectedFile.type,
+          urlLength: base64Url.length
+        });
+
+        // Force the attachment into the payload
+        await append({
           role: 'user',
           content: input || `Analyze this document: ${selectedFile.name}`,
           experimental_attachments: [
             {
               name: selectedFile.name,
               contentType: selectedFile.type,
-              url: reader.result as string,
+              url: base64Url,
             },
           ],
-        });
+        } as any); // 'as any' ensures TypeScript doesn't strip the property
+        
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
         handleInputChange({ target: { value: '' } } as any);
@@ -69,7 +80,7 @@ export default function Home() {
                   <>
                     {(m as any).experimental_attachments?.map((att: any, i: number) => (
                       <div key={i} className="text-xs bg-blue-700 p-2 rounded mb-2 flex items-center gap-2">
-                         {att.name}
+                        📎 {att.name}
                       </div>
                     ))}
                     {m.content}

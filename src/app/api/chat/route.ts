@@ -1,5 +1,11 @@
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { streamText } from 'ai';
+
+// Configure DeepSeek using the OpenAI-compatible provider
+const deepseek = createOpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey: process.env.DEEPSEEK_API_KEY || '',
+});
 
 export const maxDuration = 30;
 
@@ -15,12 +21,9 @@ export async function POST(req: Request) {
       
       if (attachment.contentType === 'application/pdf' && attachment.url) {
         try {
-          // Dynamically require to completely bypass Next.js ESM import issues with pdf-parse
           const pdfParse = require('pdf-parse');
-          
           const base64Data = attachment.url.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
-          
           const pdfData = await pdfParse(buffer);
           
           processedMessages[processedMessages.length - 1] = {
@@ -36,7 +39,8 @@ export async function POST(req: Request) {
     }
 
     const result = await streamText({
-      model: openai('gpt-4o') as any,
+      // Use DeepSeek's standard chat model
+      model: deepseek('deepseek-chat') as any, 
       system: `You are VANTAGE, the ultimate 24/7 mortgage and real estate financing assistant. You are a problem-solver. Be concise, mobile-first, and prioritize compliance.`,
       messages: processedMessages,
     });

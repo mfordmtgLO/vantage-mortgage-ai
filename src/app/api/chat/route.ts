@@ -6,15 +6,20 @@ const deepseek = createOpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY || '',
 });
 
-export const maxDuration = 30;
+// INCREASE TIME LIMIT to 60 seconds to prevent 504 timeouts
+export const maxDuration = 60;
 
-// Helper to parse PDF using pure JS (no browser DOM/Canvas dependencies)
+// Helper to parse PDF with a safety timeout
 function parsePDFBuffer(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
     const PDFParser = require("pdf2json");
     const pdfParser = new PDFParser();
     
+    // Safety timeout: if parsing takes > 20 seconds, abort to prevent 504
+    const timeout = setTimeout(() => reject(new Error("PDF parsing took too long")), 20000);
+
     pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
+      clearTimeout(timeout);
       let fullText = "";
       pdfData.Pages.forEach((page: any) => {
         page.Texts.forEach((textItem: any) => {
@@ -26,6 +31,7 @@ function parsePDFBuffer(buffer: Buffer): Promise<string> {
     });
 
     pdfParser.on("pdfParser_dataError", (err: any) => {
+      clearTimeout(timeout);
       reject(err);
     });
 
@@ -49,7 +55,6 @@ export async function POST(req: Request) {
           const base64Data = attachment.url.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
           
-          // Use the pure JS parser
           const extractedText = await parsePDFBuffer(buffer);
           
           lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${extractedText}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this document. Identify key numbers, rates, and terms.`;

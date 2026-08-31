@@ -1,8 +1,10 @@
 'use client';
 import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
-// @ts-ignore
-import PDFParser from "pdf2json";
+import * as pdfjsLib from 'pdfjs-dist';
+
+// FIX: Explicitly pin the worker to the exact stable version we just installed
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 export default function Home() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -15,40 +17,19 @@ export default function Home() {
     if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
   };
 
-  // PURE JS Client-side PDF text extractor (NO WORKER NEEDED)
+  // Client-side PDF text extractor
   const extractTextFromPDF = async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      // @ts-ignore
-      const pdfParser = new PDFParser(null, 1);
-      
-      pdfParser.on("pdfParser_dataError", (errData: any) => {
-        reject(new Error(errData.parserError || "Failed to parse PDF"));
-      });
-      
-      pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
-        let fullText = "";
-        if (pdfData.Pages) {
-          pdfData.Pages.forEach((page: any) => {
-            if (page.Texts) {
-              page.Texts.forEach((textItem: any) => {
-                fullText += decodeURIComponent(textItem.R.map((r: any) => r.T).join(" ")) + " ";
-              });
-            }
-            fullText += "\n";
-          });
-        }
-        resolve(fullText.trim());
-      });
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result) {
-          pdfParser.parseBuffer(reader.result as ArrayBuffer);
-        }
-      };
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsArrayBuffer(file);
-    });
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText;
   };
 
   const sendMessage = async (userMessage: any) => {
@@ -123,7 +104,6 @@ export default function Home() {
       
       try {
         const extractedText = await extractTextFromPDF(selectedFile);
-        // Remove the "Processing..." message
         setMessages(prev => prev.filter(m => m.content !== `Processing ${selectedFile.name}...`));
         
         finalContent = `${input || 'Analyze this document:'}\n\n[PDF EXTRACTED TEXT START]\n${extractedText}\n[PDF EXTRACTED TEXT END]`;

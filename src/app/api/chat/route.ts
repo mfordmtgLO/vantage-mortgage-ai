@@ -12,36 +12,40 @@ export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
     
+    console.log(' Received messages:', JSON.stringify(messages, null, 2));
+    
     let processedMessages = [...messages];
     const lastMessage = processedMessages[processedMessages.length - 1];
 
-    // Check if the user attached a file
-    if (lastMessage?.experimental_attachments?.length > 0) {
+    // Debug: Check if attachments exist
+    if (lastMessage?.experimental_attachments) {
+      console.log('📎 Attachments found:', lastMessage.experimental_attachments);
+      
       const attachment = lastMessage.experimental_attachments[0];
       
       if (attachment.contentType === 'application/pdf' && attachment.url) {
+        console.log('📄 Processing PDF:', attachment.name);
+        
         try {
-          // Dynamic require bypasses Next.js ESM strictness
           const pdfParse = require('pdf-parse');
-          
-          // Convert base64 data URL to buffer
           const base64Data = attachment.url.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
-          
-          // Extract text from the PDF
           const pdfData = await pdfParse(buffer);
           
-          // Replace the attachment object with the extracted text to save tokens and prevent API errors
+          console.log('✅ PDF parsed successfully, text length:', pdfData.text.length);
+          
           processedMessages[processedMessages.length - 1] = {
             ...lastMessage,
             content: `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this tax return. Identify Gross Receipts, Total Expenses, and specifically call out potential add-backs (Depreciation, Depletion, Amortization, One-time expenses, Home Office, Auto). Calculate the adjusted qualifying income.`,
             experimental_attachments: undefined 
           };
         } catch (error) {
-          console.error('PDF Parse Error:', error);
+          console.error('❌ PDF Parse Error:', error);
           return new Response('Failed to parse PDF. Please ensure it is a valid, text-based PDF.', { status: 400 });
         }
       }
+    } else {
+      console.log('ℹ️ No attachments found in message');
     }
 
     const result = await streamText({
@@ -52,7 +56,7 @@ export async function POST(req: Request) {
 
     return result.toDataStreamResponse();
   } catch (error) {
-    console.error('API Route Error:', error);
+    console.error(' API Route Error:', error);
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), { 
       status: 500,
       headers: { 'Content-Type': 'application/json' }

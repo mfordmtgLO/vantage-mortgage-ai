@@ -3,8 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// FIX: Use a stable, CORS-friendly CDN link for the PDF worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+// FIX: Dynamically match the worker version to the installed API version exactly
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
 export default function Home() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -161,7 +161,7 @@ export default function Home() {
         <form onSubmit={onSubmit} className="p-4 border-t border-gray-800 fixed bottom-0 w-full max-w-md bg-gray-900">
           {selectedFile && (
             <div className="mb-2 text-xs bg-gray-800 p-2 rounded flex justify-between items-center">
-              <span className="truncate max-w-[200px]"> {selectedFile.name}</span>
+              <span className="truncate max-w-[200px]">📎 {selectedFile.name}</span>
               <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2">✕</button>
             </div>
           )}

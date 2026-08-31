@@ -3,8 +3,17 @@ import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// FIX: Explicitly pin the worker to the exact stable version we just installed
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// COMPLIANCE: PII Redaction Function
+const redactPII = (text: string): string => {
+  return text
+    // Redact SSNs (e.g., 123-45-6789, 123 45 6789, 123456789)
+    .replace(/\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b/g, '***-**-****')
+    // Redact standard 9-digit account numbers (optional, adjust if needed)
+    // .replace(/\b\d{9}\b/g, '*********') 
+    ;
+};
 
 export default function Home() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -17,7 +26,6 @@ export default function Home() {
     if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
   };
 
-  // Client-side PDF text extractor
   const extractTextFromPDF = async (file: File): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
@@ -32,8 +40,9 @@ export default function Home() {
     return fullText;
   };
 
-  const sendMessage = async (userMessage: any) => {
-    setMessages(prev => [...prev, userMessage]);
+  const sendMessage = async (cleanUiMessage: any, documentContext?: string) => {
+    // 1. Add ONLY the clean message to the UI state
+    setMessages(prev => [...prev, cleanUiMessage]);
     setIsLoading(true);
     setInput('');
     setSelectedFile(null);
@@ -42,10 +51,14 @@ export default function Home() {
     setMessages(prev => [...prev, { role: 'assistant', content: '', id: `assistant-${Date.now()}` }]);
 
     try {
+      // 2. Send the documentContext separately. It NEVER touches the UI state.
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...messages, userMessage] })
+        body: JSON.stringify({ 
+          messages: [...messages, cleanUiMessage],
+          documentContext: documentContext // Ephemeral payload
+        })
       });
 
       if (!response.ok) {
@@ -97,16 +110,25 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim() && !selectedFile) return;
 
-    let finalContent = input;
+    const cleanUiMessage = { 
+      role: 'user', 
+      content: selectedFile ? `Analyze this document: ${selectedFile.name}` : input, 
+      id: `user-${Date.now()}` 
+    };
+
     if (selectedFile) {
       setIsLoading(true); 
-      setMessages(prev => [...prev, { role: 'user', content: `Processing ${selectedFile.name}...`, id: `user-${Date.now()}` }]);
+      setMessages(prev => [...prev, { role: 'user', content: `Processing ${selectedFile.name}...`, id: `temp-${Date.now()}` }]);
       
       try {
-        const extractedText = await extractTextFromPDF(selectedFile);
-        setMessages(prev => prev.filter(m => m.content !== `Processing ${selectedFile.name}...`));
+        const rawText = await extractTextFromPDF(selectedFile);
+        setMessages(prev => prev.filter(m => m.id.startsWith('temp-')));
         
-        finalContent = `${input || 'Analyze this document:'}\n\n[PDF EXTRACTED TEXT START]\n${extractedText}\n[PDF EXTRACTED TEXT END]`;
+        // COMPLIANCE: Redact PII before it ever leaves the browser
+        const sanitizedText = redactPII(rawText);
+        
+        // Send clean UI message + ephemeral sanitized context
+        await sendMessage(cleanUiMessage, sanitizedText);
       } catch (err: any) {
         setMessages(prev => {
           const newMessages = [...prev];
@@ -116,10 +138,9 @@ export default function Home() {
         setIsLoading(false);
         return;
       }
+    } else {
+      await sendMessage(cleanUiMessage);
     }
-
-    const userMessage = { role: 'user', content: finalContent };
-    await sendMessage(userMessage);
   };
 
   return (

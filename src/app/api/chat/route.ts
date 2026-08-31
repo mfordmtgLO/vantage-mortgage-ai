@@ -8,6 +8,15 @@ const deepseek = createOpenAI({
 
 export const maxDuration = 30;
 
+// ️ POLYFILL: Mock browser APIs that pdf-parse tries to use in Node.js serverless
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  globalThis.DOMMatrix = class DOMMatrix {
+    constructor() {}
+    multiply() { return this; }
+    transformPoint() { return { x: 0, y: 0 }; }
+  } as any;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -21,16 +30,16 @@ export async function POST(req: Request) {
       const attachment = attachments[0];
       if (attachment.contentType === 'application/pdf' && attachment.url) {
         try {
+          // Dynamic require bypasses Next.js ESM strictness
           const pdfParse = require('pdf-parse');
           const base64Data = attachment.url.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
           const pdfData = await pdfParse(buffer);
           
-          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]`;
+          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this document. Identify key numbers, rates, and terms.`;
           delete lastMessage.experimental_attachments;
           delete lastMessage.attachments;
         } catch (error: any) {
-          // Return 500 with the exact error message so we can see it in the Network tab
           return new Response(JSON.stringify({ error: 'PDF Parse Failed', details: error.message }), { 
             status: 500,
             headers: { 'Content-Type': 'application/json' }

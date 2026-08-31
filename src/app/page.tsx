@@ -14,7 +14,6 @@ export default function Home() {
     }
   };
 
-  // Explicitly typing the event as HTMLFormElement satisfies TypeScript
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim() && !selectedFile) return;
@@ -26,12 +25,14 @@ export default function Home() {
         append({
           role: 'user',
           content: input || `Analyze this document: ${selectedFile.name}`,
-          experimental_attachments: [{
-            name: selectedFile.name,
-            contentType: selectedFile.type,
-            url: reader.result as string
-          }]
-        } as any); 
+          experimental_attachments: [
+            {
+              name: selectedFile.name,
+              contentType: selectedFile.type,
+              url: reader.result as string,
+            },
+          ],
+        });
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
         handleInputChange({ target: { value: '' } } as any);
@@ -68,7 +69,7 @@ export default function Home() {
                   <>
                     {(m as any).experimental_attachments?.map((att: any, i: number) => (
                       <div key={i} className="text-xs bg-blue-700 p-2 rounded mb-2 flex items-center gap-2">
-                        📎 {att.name}
+                         {att.name}
                       </div>
                     ))}
                     {m.content}
@@ -92,7 +93,7 @@ export default function Home() {
         <form onSubmit={onSubmit} className="p-4 border-t border-gray-800 fixed bottom-0 w-full max-w-md bg-gray-900">
           {selectedFile && (
             <div className="mb-2 text-xs bg-gray-800 p-2 rounded flex justify-between items-center">
-              <span className="truncate max-w-[200px]"> {selectedFile.name}</span>
+              <span className="truncate max-w-[200px]">📎 {selectedFile.name}</span>
               <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2">✕</button>
             </div>
           )}

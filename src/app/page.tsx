@@ -4,8 +4,9 @@ import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
 
 export default function Home() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, append } = useChat();
+  const { messages, input, handleInputChange, setMessages } = useChat();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -14,42 +15,82 @@ export default function Home() {
     }
   };
 
+  const sendMessage = async (userMessage: any) => {
+    // Update UI immediately
+    setMessages([...messages, userMessage]);
+    setIsStreaming(true);
+    handleInputChange({ target: { value: '' } } as any);
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    try {
+      // Custom fetch call bypasses the SDK's broken append function
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...messages, userMessage] })
+      });
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') break;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.text) {
+                  assistantContent += parsed.text;
+                  setMessages([...messages, userMessage, { 
+                    role: 'assistant', 
+                    content: assistantContent, 
+                    id: `assistant-${Date.now()}` 
+                  }]);
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Fetch error:', error);
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim() && !selectedFile) return;
+
+    const userMessage: any = {
+      role: 'user',
+      content: input || `Analyze this document: ${selectedFile?.name}`,
+    };
 
     if (selectedFile) {
       const reader = new FileReader();
       reader.readAsDataURL(selectedFile);
       reader.onload = async () => {
-        const base64Url = reader.result as string;
-        
-        // BROWSER CONSOLE LOG: This will show up in your F12 Dev Tools
-        console.log('📱 FRONTEND: Packaging attachment:', {
-          name: selectedFile.name,
-          contentType: selectedFile.type,
-          urlLength: base64Url.length
-        });
-
-        // Force the attachment into the payload
-        await append({
-          role: 'user',
-          content: input || `Analyze this document: ${selectedFile.name}`,
-          experimental_attachments: [
-            {
-              name: selectedFile.name,
-              contentType: selectedFile.type,
-              url: base64Url,
-            },
-          ],
-        } as any); // 'as any' ensures TypeScript doesn't strip the property
-        
-        setSelectedFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        handleInputChange({ target: { value: '' } } as any);
+        userMessage.experimental_attachments = [
+          {
+            name: selectedFile.name,
+            contentType: selectedFile.type,
+            url: reader.result as string,
+          },
+        ];
+        await sendMessage(userMessage);
       };
     } else {
-      handleSubmit(e);
+      await sendMessage(userMessage);
     }
   };
 
@@ -92,7 +133,7 @@ export default function Home() {
             </div>
           ))}
           
-          {isLoading && (
+          {isStreaming && (
              <div className="flex justify-start">
                 <div className="bg-gray-800 text-gray-400 p-3 rounded-2xl rounded-bl-none border border-gray-700 text-sm">
                   <span className="animate-pulse">Crunching the numbers...</span>
@@ -104,7 +145,7 @@ export default function Home() {
         <form onSubmit={onSubmit} className="p-4 border-t border-gray-800 fixed bottom-0 w-full max-w-md bg-gray-900">
           {selectedFile && (
             <div className="mb-2 text-xs bg-gray-800 p-2 rounded flex justify-between items-center">
-              <span className="truncate max-w-[200px]">📎 {selectedFile.name}</span>
+              <span className="truncate max-w-[200px]"> {selectedFile.name}</span>
               <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2">✕</button>
             </div>
           )}
@@ -129,11 +170,11 @@ export default function Home() {
               onChange={handleInputChange}
               placeholder="Ask a question or attach a Schedule C..." 
               className="flex-1 bg-gray-800 text-white p-3 rounded-full border border-gray-700 focus:outline-none focus:border-blue-500 text-sm min-w-0"
-              disabled={isLoading}
+              disabled={isStreaming}
             />
             <button 
               type="submit"
-              disabled={isLoading || (!input.trim() && !selectedFile)}
+              disabled={isStreaming || (!input.trim() && !selectedFile)}
               className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white px-4 py-2 rounded-full font-semibold transition text-sm shrink-0"
             >
               Send

@@ -3,8 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Use CDN for the PDF worker to avoid Next.js bundling errors
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// FIX: Use a stable, CORS-friendly CDN link for the PDF worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
 export default function Home() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -20,7 +20,8 @@ export default function Home() {
   // Client-side PDF text extractor
   const extractTextFromPDF = async (file: File): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
     let fullText = '';
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -103,13 +104,14 @@ export default function Home() {
       
       try {
         const extractedText = await extractTextFromPDF(selectedFile);
+        // Remove the "Processing..." message
         setMessages(prev => prev.filter(m => m.content !== `Processing ${selectedFile.name}...`));
         
         finalContent = `${input || 'Analyze this document:'}\n\n[PDF EXTRACTED TEXT START]\n${extractedText}\n[PDF EXTRACTED TEXT END]`;
-      } catch (err) {
+      } catch (err: any) {
         setMessages(prev => {
           const newMessages = [...prev];
-          newMessages[newMessages.length - 1].content = `Error reading PDF: ${err}`;
+          newMessages[newMessages.length - 1].content = `Error reading PDF: ${err.message}`;
           return newMessages;
         });
         setIsLoading(false);

@@ -1,6 +1,10 @@
 'use client';
 import ReactMarkdown from 'react-markdown';
 import { useState, useRef } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Use CDN for the PDF worker to avoid Next.js bundling errors
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export default function Home() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -11,6 +15,20 @@ export default function Home() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
+  };
+
+  // Client-side PDF text extractor
+  const extractTextFromPDF = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText;
   };
 
   const sendMessage = async (userMessage: any) => {
@@ -29,7 +47,6 @@ export default function Home() {
         body: JSON.stringify({ messages: [...messages, userMessage] })
       });
 
-      // UNMASK THE ERROR: Read the exact error details from the backend
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.details || `Server error: ${response.status}`);
@@ -79,23 +96,29 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim() && !selectedFile) return;
 
-    const userMessage: any = {
-      role: 'user',
-      content: input || `Analyze this document: ${selectedFile?.name}`,
-    };
-
+    let finalContent = input;
     if (selectedFile) {
-      const reader = new FileReader();
-      reader.readAsDataURL(selectedFile);
-      reader.onload = async () => {
-        userMessage.experimental_attachments = [
-          { name: selectedFile.name, contentType: selectedFile.type, url: reader.result as string }
-        ];
-        await sendMessage(userMessage);
-      };
-    } else {
-      await sendMessage(userMessage);
+      setIsLoading(true); 
+      setMessages(prev => [...prev, { role: 'user', content: `Processing ${selectedFile.name}...`, id: `user-${Date.now()}` }]);
+      
+      try {
+        const extractedText = await extractTextFromPDF(selectedFile);
+        setMessages(prev => prev.filter(m => m.content !== `Processing ${selectedFile.name}...`));
+        
+        finalContent = `${input || 'Analyze this document:'}\n\n[PDF EXTRACTED TEXT START]\n${extractedText}\n[PDF EXTRACTED TEXT END]`;
+      } catch (err) {
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[newMessages.length - 1].content = `Error reading PDF: ${err}`;
+          return newMessages;
+        });
+        setIsLoading(false);
+        return;
+      }
     }
+
+    const userMessage = { role: 'user', content: finalContent };
+    await sendMessage(userMessage);
   };
 
   return (
@@ -119,16 +142,7 @@ export default function Home() {
               <div className={`max-w-[90%] p-3 rounded-2xl text-sm ${
                 m.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700 prose prose-invert prose-sm max-w-none'
               }`}>
-                {m.role === 'user' ? (
-                  <>
-                    {(m as any).experimental_attachments?.map((att: any, i: number) => (
-                      <div key={i} className="text-xs bg-blue-700 p-2 rounded mb-2 flex items-center gap-2">📎 {att.name}</div>
-                    ))}
-                    {m.content}
-                  </>
-                ) : (
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
-                )}
+                {m.role === 'user' ? m.content : <ReactMarkdown>{m.content}</ReactMarkdown>}
               </div>
             </div>
           ))}
@@ -145,8 +159,8 @@ export default function Home() {
         <form onSubmit={onSubmit} className="p-4 border-t border-gray-800 fixed bottom-0 w-full max-w-md bg-gray-900">
           {selectedFile && (
             <div className="mb-2 text-xs bg-gray-800 p-2 rounded flex justify-between items-center">
-              <span className="truncate max-w-[200px]">📎 {selectedFile.name}</span>
-              <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2"></button>
+              <span className="truncate max-w-[200px]"> {selectedFile.name}</span>
+              <button type="button" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-400 font-bold ml-2">✕</button>
             </div>
           )}
           <div className="flex gap-2 items-center">

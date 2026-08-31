@@ -13,14 +13,12 @@ export async function POST(req: Request) {
     const body = await req.json();
     const messages = body.messages || [];
     
-    // Check ALL possible locations the SDK might hide the attachment
-    const attachments = body.experimental_attachments || 
-                        body.attachments || 
-                        messages[messages.length - 1]?.experimental_attachments || 
-                        messages[messages.length - 1]?.attachments;
+    // The frontend is sending the attachment INSIDE the last message object
+    const lastMessage = messages[messages.length - 1];
+    const attachments = lastMessage?.experimental_attachments || lastMessage?.attachments;
 
     console.log(' INCOMING PAYLOAD KEYS:', Object.keys(body));
-    console.log('📎 ATTACHMENTS FOUND:', !!attachments);
+    console.log('📎 ATTACHMENTS FOUND IN MESSAGE:', !!attachments);
 
     let processedMessages = [...messages];
 
@@ -35,21 +33,19 @@ export async function POST(req: Request) {
           const buffer = Buffer.from(base64Data, 'base64');
           const pdfData = await pdfParse(buffer);
           
-          const lastMessage = processedMessages[processedMessages.length - 1];
-          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this tax return. Identify Gross Receipts, Total Expenses, and specifically call out potential add-backs (Depreciation, Depletion, Amortization, One-time expenses, Home Office, Auto). Calculate the adjusted qualifying income.`;
-          
-          // Clean up the message so the AI doesn't get confused by the raw base64
-          if (lastMessage.experimental_attachments) delete lastMessage.experimental_attachments;
-          if (lastMessage.attachments) delete lastMessage.attachments;
+          // Inject the text and clean up the attachment object
+          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this document. Identify key numbers, rates, and terms.`;
+          delete lastMessage.experimental_attachments;
+          delete lastMessage.attachments;
           
           console.log('✅ PDF PARSED SUCCESSFULLY. Text length:', pdfData.text.length);
         } catch (error) {
           console.error('❌ PDF PARSE ERROR:', error);
-          return new Response('Failed to parse PDF. Please ensure it is a valid, text-based PDF.', { status: 400 });
+          return new Response('Failed to parse PDF.', { status: 400 });
         }
       }
     } else {
-      console.log('ℹ️ NO ATTACHMENT FOUND in payload.');
+      console.log('ℹ️ NO ATTACHMENT FOUND in message.');
     }
 
     const result = await streamText({
@@ -61,9 +57,6 @@ export async function POST(req: Request) {
     return result.toDataStreamResponse();
   } catch (error) {
     console.error('🔥 API Route Error:', error);
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), { 
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
   }
 }

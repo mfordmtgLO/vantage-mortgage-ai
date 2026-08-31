@@ -10,36 +10,37 @@ export const maxDuration = 30;
 
 export async function POST(req: Request) {
   try {
-    // The SDK sends attachments at the ROOT of the body, not inside messages!
-    const { messages, experimental_attachments } = await req.json();
+    const body = await req.json();
+    const messages = body.messages || [];
     
-    console.log('📥 INCOMING PAYLOAD:', { 
-      hasMessages: !!messages, 
-      hasAttachments: !!experimental_attachments 
-    });
+    // Check ALL possible locations the SDK might hide the attachment
+    const attachments = body.experimental_attachments || 
+                        body.attachments || 
+                        messages[messages.length - 1]?.experimental_attachments || 
+                        messages[messages.length - 1]?.attachments;
+
+    console.log(' INCOMING PAYLOAD KEYS:', Object.keys(body));
+    console.log('📎 ATTACHMENTS FOUND:', !!attachments);
 
     let processedMessages = [...messages];
 
-    // Check for attachments at the root level
-    if (experimental_attachments && experimental_attachments.length > 0) {
-      console.log(' ATTACHMENT DETECTED AT ROOT! Processing PDF...');
-      const attachment = experimental_attachments[0];
+    if (attachments && attachments.length > 0) {
+      console.log('📄 ATTACHMENT DETECTED! Processing PDF...');
+      const attachment = attachments[0];
       
       if (attachment.contentType === 'application/pdf' && attachment.url) {
         try {
-          // Dynamic require bypasses Next.js ESM strictness
           const pdfParse = require('pdf-parse');
-          
-          // Convert base64 data URL to buffer
           const base64Data = attachment.url.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
-          
-          // Extract text from the PDF
           const pdfData = await pdfParse(buffer);
           
-          // Inject the extracted text into the last user message
           const lastMessage = processedMessages[processedMessages.length - 1];
           lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this tax return. Identify Gross Receipts, Total Expenses, and specifically call out potential add-backs (Depreciation, Depletion, Amortization, One-time expenses, Home Office, Auto). Calculate the adjusted qualifying income.`;
+          
+          // Clean up the message so the AI doesn't get confused by the raw base64
+          if (lastMessage.experimental_attachments) delete lastMessage.experimental_attachments;
+          if (lastMessage.attachments) delete lastMessage.attachments;
           
           console.log('✅ PDF PARSED SUCCESSFULLY. Text length:', pdfData.text.length);
         } catch (error) {
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
         }
       }
     } else {
-      console.log('ℹ️ NO ATTACHMENT FOUND at root level.');
+      console.log('ℹ️ NO ATTACHMENT FOUND in payload.');
     }
 
     const result = await streamText({

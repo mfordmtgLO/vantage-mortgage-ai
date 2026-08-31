@@ -12,20 +12,13 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const messages = body.messages || [];
-    
-    // The frontend is sending the attachment INSIDE the last message object
     const lastMessage = messages[messages.length - 1];
     const attachments = lastMessage?.experimental_attachments || lastMessage?.attachments;
-
-    console.log(' INCOMING PAYLOAD KEYS:', Object.keys(body));
-    console.log('📎 ATTACHMENTS FOUND IN MESSAGE:', !!attachments);
 
     let processedMessages = [...messages];
 
     if (attachments && attachments.length > 0) {
-      console.log('📄 ATTACHMENT DETECTED! Processing PDF...');
       const attachment = attachments[0];
-      
       if (attachment.contentType === 'application/pdf' && attachment.url) {
         try {
           const pdfParse = require('pdf-parse');
@@ -33,19 +26,17 @@ export async function POST(req: Request) {
           const buffer = Buffer.from(base64Data, 'base64');
           const pdfData = await pdfParse(buffer);
           
-          // Inject the text and clean up the attachment object
-          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this document. Identify key numbers, rates, and terms.`;
+          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]`;
           delete lastMessage.experimental_attachments;
           delete lastMessage.attachments;
-          
-          console.log('✅ PDF PARSED SUCCESSFULLY. Text length:', pdfData.text.length);
-        } catch (error) {
-          console.error('❌ PDF PARSE ERROR:', error);
-          return new Response('Failed to parse PDF.', { status: 400 });
+        } catch (error: any) {
+          // Return 500 with the exact error message so we can see it in the Network tab
+          return new Response(JSON.stringify({ error: 'PDF Parse Failed', details: error.message }), { 
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
         }
       }
-    } else {
-      console.log('ℹ️ NO ATTACHMENT FOUND in message.');
     }
 
     const result = await streamText({
@@ -55,8 +46,10 @@ export async function POST(req: Request) {
     });
 
     return result.toDataStreamResponse();
-  } catch (error) {
-    console.error('🔥 API Route Error:', error);
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }

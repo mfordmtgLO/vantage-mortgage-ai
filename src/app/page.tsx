@@ -10,13 +10,10 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
-    }
+    if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
   };
 
   const sendMessage = async (userMessage: any) => {
-    // Update UI immediately
     setMessages([...messages, userMessage]);
     setIsStreaming(true);
     handleInputChange({ target: { value: '' } } as any);
@@ -24,12 +21,16 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     try {
-      // Custom fetch call bypasses the SDK's broken append function
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: [...messages, userMessage] })
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || 'Server error');
+      }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -41,27 +42,27 @@ export default function Home() {
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
           const lines = chunk.split('\n');
+          
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') break;
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.text) {
-                  assistantContent += parsed.text;
-                  setMessages([...messages, userMessage, { 
-                    role: 'assistant', 
-                    content: assistantContent, 
-                    id: `assistant-${Date.now()}` 
-                  }]);
-                }
-              } catch (e) {}
+            // The Vercel AI SDK streams text with a '0:' prefix
+            if (line.startsWith('0:')) {
+              const text = JSON.parse(line.slice(2));
+              assistantContent += text;
+              setMessages([...messages, userMessage, { 
+                role: 'assistant', 
+                content: assistantContent, 
+                id: `assistant-${Date.now()}` 
+              }]);
             }
           }
         }
       }
-    } catch (error) {
-      console.error('Fetch error:', error);
+    } catch (error: any) {
+      setMessages([...messages, userMessage, { 
+        role: 'assistant', 
+        content: `Error: ${error.message}`, 
+        id: `error-${Date.now()}` 
+      }]);
     } finally {
       setIsStreaming(false);
     }
@@ -81,11 +82,7 @@ export default function Home() {
       reader.readAsDataURL(selectedFile);
       reader.onload = async () => {
         userMessage.experimental_attachments = [
-          {
-            name: selectedFile.name,
-            contentType: selectedFile.type,
-            url: reader.result as string,
-          },
+          { name: selectedFile.name, contentType: selectedFile.type, url: reader.result as string }
         ];
         await sendMessage(userMessage);
       };
@@ -113,16 +110,12 @@ export default function Home() {
           {messages.map((m) => (
             <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[90%] p-3 rounded-2xl text-sm ${
-                m.role === 'user' 
-                  ? 'bg-blue-600 text-white rounded-br-none' 
-                  : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700 prose prose-invert prose-sm max-w-none'
+                m.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700 prose prose-invert prose-sm max-w-none'
               }`}>
                 {m.role === 'user' ? (
                   <>
                     {(m as any).experimental_attachments?.map((att: any, i: number) => (
-                      <div key={i} className="text-xs bg-blue-700 p-2 rounded mb-2 flex items-center gap-2">
-                        📎 {att.name}
-                      </div>
+                      <div key={i} className="text-xs bg-blue-700 p-2 rounded mb-2 flex items-center gap-2">📎 {att.name}</div>
                     ))}
                     {m.content}
                   </>
@@ -150,35 +143,10 @@ export default function Home() {
             </div>
           )}
           <div className="flex gap-2 items-center">
-            <input 
-              type="file" 
-              accept=".pdf,.txt,.csv" 
-              className="hidden" 
-              ref={fileInputRef}
-              onChange={handleFileChange} 
-            />
-            <button 
-              type="button" 
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-gray-700 hover:bg-gray-600 text-white p-3 rounded-full transition shrink-0"
-              title="Attach Tax Return"
-            >
-              📎
-            </button>
-            <input 
-              value={input}
-              onChange={handleInputChange}
-              placeholder="Ask a question or attach a Schedule C..." 
-              className="flex-1 bg-gray-800 text-white p-3 rounded-full border border-gray-700 focus:outline-none focus:border-blue-500 text-sm min-w-0"
-              disabled={isStreaming}
-            />
-            <button 
-              type="submit"
-              disabled={isStreaming || (!input.trim() && !selectedFile)}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white px-4 py-2 rounded-full font-semibold transition text-sm shrink-0"
-            >
-              Send
-            </button>
+            <input type="file" accept=".pdf,.txt,.csv" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-gray-700 hover:bg-gray-600 text-white p-3 rounded-full transition shrink-0">📎</button>
+            <input value={input} onChange={handleInputChange} placeholder="Ask a question or attach a Schedule C..." className="flex-1 bg-gray-800 text-white p-3 rounded-full border border-gray-700 focus:outline-none focus:border-blue-500 text-sm min-w-0" disabled={isStreaming} />
+            <button type="submit" disabled={isStreaming || (!input.trim() && !selectedFile)} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white px-4 py-2 rounded-full font-semibold transition text-sm shrink-0">Send</button>
           </div>
         </form>
       </div>

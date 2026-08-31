@@ -10,6 +10,13 @@ const deepseek = createOpenAI({
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
+  if (!process.env.DEEPSEEK_API_KEY) {
+    return new Response(
+      'DeepSeek is not configured. Add DEEPSEEK_API_KEY in the project Vars settings.',
+      { status: 503 },
+    );
+  }
+
   try {
     const { messages } = await req.json();
     

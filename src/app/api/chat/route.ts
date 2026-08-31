@@ -8,13 +8,29 @@ const deepseek = createOpenAI({
 
 export const maxDuration = 30;
 
-// ️ POLYFILL: Mock browser APIs that pdf-parse tries to use in Node.js serverless
-if (typeof globalThis.DOMMatrix === 'undefined') {
-  globalThis.DOMMatrix = class DOMMatrix {
-    constructor() {}
-    multiply() { return this; }
-    transformPoint() { return { x: 0, y: 0 }; }
-  } as any;
+// Helper to parse PDF using pure JS (no browser DOM/Canvas dependencies)
+function parsePDFBuffer(buffer: Buffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const PDFParser = require("pdf2json");
+    const pdfParser = new PDFParser();
+    
+    pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
+      let fullText = "";
+      pdfData.Pages.forEach((page: any) => {
+        page.Texts.forEach((textItem: any) => {
+          fullText += decodeURIComponent(textItem.R.map((r: any) => r.T).join(" "));
+        });
+        fullText += "\n";
+      });
+      resolve(fullText);
+    });
+
+    pdfParser.on("pdfParser_dataError", (err: any) => {
+      reject(err);
+    });
+
+    pdfParser.parseBuffer(buffer);
+  });
 }
 
 export async function POST(req: Request) {
@@ -30,13 +46,13 @@ export async function POST(req: Request) {
       const attachment = attachments[0];
       if (attachment.contentType === 'application/pdf' && attachment.url) {
         try {
-          // Dynamic require bypasses Next.js ESM strictness
-          const pdfParse = require('pdf-parse');
           const base64Data = attachment.url.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
-          const pdfData = await pdfParse(buffer);
           
-          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${pdfData.text}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this document. Identify key numbers, rates, and terms.`;
+          // Use the pure JS parser
+          const extractedText = await parsePDFBuffer(buffer);
+          
+          lastMessage.content = `${lastMessage.content}\n\n[PDF EXTRACTED TEXT START]\n${extractedText}\n[PDF EXTRACTED TEXT END]\n\nAnalyze this document. Identify key numbers, rates, and terms.`;
           delete lastMessage.experimental_attachments;
           delete lastMessage.attachments;
         } catch (error: any) {
